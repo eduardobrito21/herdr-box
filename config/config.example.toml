@@ -1,0 +1,8 @@
+[devbox]
+name = "db-default"
+blueprint = "bp-default"
+path = "/workspaces"
+
+[pi]
+command = "pi"
+on_missing = "install"

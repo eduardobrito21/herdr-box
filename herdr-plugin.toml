@@ -1,0 +1,60 @@
+id = "herdr.box"
+name = "herdr-box"
+version = "0.1.0"
+min_herdr_version = "0.9.1"
+description = "Open a Namespace Devbox and run pi in a zoomed Herdr pane"
+platforms = ["linux", "macos"]
+
+[[actions]]
+id = "open"
+title = "Open Namespace Devbox"
+contexts = ["workspace"]
+command = ["bash", "bin/box", "open"]
+
+[[actions]]
+id = "shell"
+title = "Shell in Namespace Devbox"
+contexts = ["workspace"]
+command = ["bash", "bin/box", "shell"]
+
+[[actions]]
+id = "status"
+title = "Namespace Devbox status"
+contexts = ["workspace"]
+command = ["bash", "bin/box", "status"]
+
+[[actions]]
+id = "kill"
+title = "Kill Namespace Devbox"
+contexts = ["workspace"]
+command = ["bash", "bin/box", "kill"]
+
+[[actions]]
+id = "list"
+title = "List tracked Devboxes"
+contexts = ["workspace"]
+command = ["bash", "bin/box", "list"]
+
+[[actions]]
+id = "logs"
+title = "Devbox operation details"
+contexts = ["workspace"]
+command = ["bash", "bin/box", "logs"]
+
+[[panes]]
+id = "open"
+title = "Namespace Devbox with pi"
+placement = "zoomed"
+command = ["bash", "bin/box", "pane-open"]
+
+[[panes]]
+id = "shell"
+title = "Namespace Devbox shell"
+placement = "zoomed"
+command = ["bash", "bin/box", "pane-shell"]
+
+[[keys.command]]
+key = "prefix+b"
+type = "plugin_action"
+command = "herdr.box.open"
+description = "open Namespace Devbox with pi"

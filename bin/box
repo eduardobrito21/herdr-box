@@ -28,12 +28,33 @@ require_devbox() {
 }
 open_pane() {
   local args=(plugin pane open --plugin herdr-box --entrypoint "$1" --placement zoomed)
-  local pane_info target_pane
+  local pane_info target_pane error_file
   [[ -z ${HERDR_WORKSPACE_ID:-} ]] || args+=(--workspace "$HERDR_WORKSPACE_ID")
-  pane_info=$("$herdr_bin" pane current --current)
-  target_pane=$(printf '%s' "$pane_info" | json_field pane.pane_id)
-  args+=(--target-pane "$target_pane")
-  "$herdr_bin" "${args[@]}"
+  target_pane=${HERDR_PANE_ID:-}
+  if [[ -z $target_pane ]]; then
+    pane_info=$("$herdr_bin" pane current --current)
+    target_pane=$(printf '%s' "$pane_info" | json_field pane.pane_id)
+  fi
+  args+=(--target-pane "$target_pane" --no-focus)
+  error_file=$(mktemp)
+  if "$herdr_bin" "${args[@]}" 2>"$error_file"; then
+    rm -f "$error_file"
+    return 0
+  fi
+  if grep -q 'split and zoomed plugin panes target an existing pane; use target_pane_id' "$error_file"; then
+    # Herdr 0.9.1 CLI serializes --target-pane incorrectly for zoomed panes.
+    args=(plugin pane open --plugin herdr-box --entrypoint "$1" --placement tab)
+    [[ -z ${HERDR_WORKSPACE_ID:-} ]] || args+=(--workspace "$HERDR_WORKSPACE_ID")
+    args+=(--no-focus)
+    if "$herdr_bin" "${args[@]}"; then
+      rm -f "$error_file"
+      return 0
+    fi
+  else
+    cat "$error_file" >&2
+  fi
+  rm -f "$error_file"
+  return 1
 }
 usage() { echo 'usage: box [open|shell|status|list|kill [--yes]|logs]' >&2; exit 2; }
 command_name=${1:-open}; [[ $# -eq 0 ]] || shift
@@ -42,7 +63,7 @@ case "$command_name" in
     [[ $# -eq 0 ]] || usage
     require_devbox
     if [[ -z ${HERDR_PLUGIN_ENTRYPOINT_ID:-} ]]; then
-      if [[ $command_name == open ]]; then open_pane open; else open_pane shell; fi
+      if [[ $command_name == open ]]; then open_pane box; else open_pane shell; fi
       exit 0
     fi
     # All slow provisioning runs inside the visible pane, never twice in an action.

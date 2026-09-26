@@ -7,6 +7,7 @@ Herdr plugin that opens a persistent Namespace Devbox and runs pi in a zoomed te
 - Herdr 0.7.0+ and Node.js 22+ (`HERDR_BOX_NODE` may name a Node executable; Bun is unsupported).
 - Namespace standalone `devbox` CLI installed and authenticated; `nsc devbox` is not a substitute. `devbox ssh` also needs local OpenSSH.
 - Run `./install.sh` for the standalone `box` CLI, dependencies (`npm ci`), and TypeScript compilation (`dist/src/cli.js`). Or link this checkout with `herdr plugin link .` for development, then run `npm ci && npm run build`. The CLI is a symlink at `~/.local/bin/box` unless `HERDR_BOX_BIN_DIR` overrides it; it will not overwrite an existing file.
+- The default pi installer uses the official package command `npm install -g @mariozechner/pi-coding-agent`.
 
 The Node data plane and tests are TypeScript. Build output is generated under ignored `dist/`; compiled Node.js code (not Bun or a sibling checkout) is the runtime. Use `npm run check` for typecheck, oxlint, and oxfmt validation; `npm test` builds and runs the TypeScript regression tests.
 
@@ -20,7 +21,7 @@ The remote path must already exist. Set `devbox.path = ""` to use the remote use
 
 ## Use
 
-The `prefix+b` keybind and **Open Namespace Devbox** action ensure the box, ensure pi, then open the zoomed SSH pane. **Shell in Namespace Devbox** ensures the box but skips pi. Provisioning occurs in the pane, not in the noninteractive action. Pane entrypoint routing attaches directly and does not recursively open another pane. Shell pane calls `devbox ssh --force_pty NAME -- bash -lc ...`; exiting the shell or pi does not stop or delete the box.
+Mode 1 (**Open Namespace Devbox**) ensures the box, ensures pi, then opens the SSH pane; Mode 2 (**Shell in Namespace Devbox**) ensures the box but skips pi. Add `prefix+shift+b` to `~/.config/herdr/config.toml` as a user keybinding if desired. Provisioning occurs in the pane, not in the noninteractive action. Pane entrypoint routing attaches directly and does not recursively open another pane. Herdr 0.9.1 rejects zoomed plugin panes when given a target pane through its CLI; on that specific response herdr-box retries as a tab (other errors are returned). Shell pane calls `devbox ssh --force_pty NAME -- bash -lc ...`; exiting the shell or pi does not stop or delete the box.
 
 Standalone commands include:
 
@@ -34,4 +35,4 @@ box kill          # prompts on a terminal
 box kill --yes    # explicit, destructive confirmation
 ```
 
-Kill creates a retained local `deleted` status record; it deletes the remote Devbox and its data. Automated tests use fake Namespace clients and do not destroy cloud resources. A bounded non-PTY live smoke created `herdr-box-integration-smoke`, installed pi, and verified pi help/argument quoting. A no-focus Herdr plugin pane reached the Pi v0.87.1 TUI, which reported no models configured; login/model completion remains manual. A separate temporary-config attempt was overridden by Herdr and unintentionally provisioned `db-default` (ID `l1opv21ov4aug`); it remains running and was not destroyed. See `PLAN.md` for exact limits and pane layout behavior.
+Kill creates a retained local `deleted` status record; it deletes the remote Devbox and its data. Automated tests use fake Namespace clients and do not destroy cloud resources. A bounded non-PTY live smoke created `herdr-box-integration-smoke`, installed pi, and verified pi help/argument quoting. A live no-focus Herdr plugin action opened a tab pane and reached the Pi v0.87.1 TUI, which reported no models configured; login/model completion remains manual. A separate temporary-config attempt was overridden by Herdr and unintentionally provisioned `db-default` (ID `l1opv21ov4aug`); it remains running and was not destroyed. See `PLAN.md` for exact limits and pane layout behavior.

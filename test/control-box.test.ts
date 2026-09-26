@@ -38,7 +38,7 @@ console.log(JSON.stringify(values[verb]));
   const herdrLog = path.join(dir, "herdr.log");
   await writeFile(
     path.join(bindir, "herdr"),
-    '#!/bin/sh\nprintf "%s\\n" "$*" >> "$HERDR_LOG"\nif [ "$1 $2 $3" = "pane current --current" ]; then printf \'{"pane":{"pane_id":"wB:p1"}}\'; fi\n',
+    '#!/bin/sh\nprintf "%s\\n" "$*" >> "$HERDR_LOG"\nif [ "$1 $2 $3" = "pane current --current" ]; then printf \'{"pane":{"pane_id":"wB:p1"}}\'; fi\nif [ "$1 $2" = "plugin pane" ] && printf "%s" "$*" | grep -q -- "--placement zoomed"; then echo \'invalid_params: split and zoomed plugin panes target an existing pane; use target_pane_id\' >&2; exit 1; fi\n',
   );
   await writeFile(path.join(bindir, "devbox"), '#!/bin/sh\nprintf "%s\\n" "$*" >> "$DEVBOX_LOG"\n');
   for (const name of ["herdr", "devbox"]) await chmod(path.join(bindir, name), 0o755);
@@ -69,9 +69,14 @@ test("open action opens a pane without doing slow provisioning in the action pro
   const result = run(["open"], f.env);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(await readFile(f.cliLog, "utf8").catch(() => ""), "");
+  const log = await readFile(f.herdrLog, "utf8");
   assert.match(
-    await readFile(f.herdrLog, "utf8"),
-    /plugin pane open --plugin herdr-box --entrypoint open --placement zoomed --workspace wB --target-pane wB:p1/,
+    log,
+    /plugin pane open --plugin herdr-box --entrypoint box --placement zoomed --workspace wB --target-pane wB:p1 --no-focus/,
+  );
+  assert.match(
+    log,
+    /plugin pane open --plugin herdr-box --entrypoint box --placement tab --workspace wB --no-focus/,
   );
 });
 
@@ -159,8 +164,9 @@ test("manifest uses supported plugin id, pane commands, keybinding, and build se
       ["bash", "bin/box", "shell"],
     ],
   );
-  assert.equal(manifest.keys[0].command, "herdr-box.open");
-  assert.equal(manifest.keys[0].key, "prefix+b");
+  assert.equal(manifest.panes[0].id, "box");
+  assert.equal(manifest.panes[1].id, "shell");
+  assert.equal(manifest.keys, undefined);
   assert.match(
     manifest.actions.find((action) => action.id === "kill").title,
     /deletes remote data/,

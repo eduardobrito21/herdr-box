@@ -43,7 +43,7 @@ contexts = ["workspace"]
 command = ["bash", "bin/box", "logs"]
 
 [[panes]]
-id = "open"
+id = "box"
 title = "Namespace Devbox with pi"
 placement = "zoomed"
 command = ["bash", "bin/box", "open"]
@@ -53,9 +53,3 @@ id = "shell"
 title = "Namespace Devbox shell"
 placement = "zoomed"
 command = ["bash", "bin/box", "shell"]
-
-[[keys]]
-key = "prefix+b"
-type = "plugin_action"
-command = "herdr-box.open"
-description = "open Namespace Devbox with pi"

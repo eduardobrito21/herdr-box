@@ -38,7 +38,7 @@ console.log(JSON.stringify(values[verb]));
   const herdrLog = path.join(dir, "herdr.log");
   await writeFile(
     path.join(bindir, "herdr"),
-    '#!/bin/sh\nprintf "%s\\n" "$*" >> "$HERDR_LOG"\nif [ "$1 $2 $3" = "pane current --current" ]; then printf \'{"pane":{"pane_id":"wB:p1"}}\'; fi\nif [ "$1 $2" = "plugin pane" ] && printf "%s" "$*" | grep -q -- "--placement zoomed"; then echo \'invalid_params: split and zoomed plugin panes target an existing pane; use target_pane_id\' >&2; exit 1; fi\n',
+    '#!/bin/sh\nprintf "%s\\n" "$*" >> "$HERDR_LOG"\nif [ "$1 $2 $3" = "pane current --current" ]; then printf \'{"pane":{"pane_id":"wB:p1"}}\'; fi\n',
   );
   await writeFile(path.join(bindir, "devbox"), '#!/bin/sh\nprintf "%s\\n" "$*" >> "$DEVBOX_LOG"\n');
   for (const name of ["herdr", "devbox"]) await chmod(path.join(bindir, name), 0o755);
@@ -72,12 +72,21 @@ test("open action opens a pane without doing slow provisioning in the action pro
   const log = await readFile(f.herdrLog, "utf8");
   assert.match(
     log,
-    /plugin pane open --plugin herdr-box --entrypoint box --placement zoomed --workspace wB --target-pane wB:p1 --no-focus/,
+    /plugin pane open --plugin herdr-box --entrypoint box --placement zoomed --target-pane wB:p1/,
   );
-  assert.match(
-    log,
-    /plugin pane open --plugin herdr-box --entrypoint box --placement tab --workspace wB --no-focus/,
-  );
+  assert.doesNotMatch(log, /--placement tab|--workspace wB|pane current --current/);
+});
+
+test("open action resolves caller pane when Herdr did not inject its pane id", async () => {
+  const f = await fixture();
+  const env = { ...f.env };
+  delete env.HERDR_PANE_ID;
+  const result = run(["open"], env);
+  assert.equal(result.status, 0, result.stderr);
+  const log = await readFile(f.herdrLog, "utf8");
+  assert.match(log, /pane current --current/);
+  assert.match(log, /--placement zoomed --target-pane wB:p1/);
+  assert.doesNotMatch(log, /--workspace wB|--placement tab/);
 });
 
 test("open pane ensures once and quotes cwd/command across the SSH command boundary", async () => {

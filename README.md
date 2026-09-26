@@ -1,6 +1,6 @@
 # herdr-box
 
-Herdr plugin for a persistent Namespace Devbox running pi in a terminal pane. It requests a zoomed pane; Herdr 0.9.1 rejects that target-pane request, so herdr-box falls back to a tab on that specific error. Exiting leaves the Devbox running; destruction is explicit.
+Herdr plugin for a persistent Namespace Devbox running pi in a zoomed terminal pane. Exiting leaves the Devbox running; destruction is explicit.
 
 ## Requirements and install
 
@@ -29,7 +29,7 @@ key = "prefix+shift+b"
 command = "herdr plugin action invoke open --plugin herdr-box"
 ```
 
-Provisioning occurs in the pane, not in the noninteractive action. Pane entrypoint routing attaches directly and does not recursively open another pane. Shell pane calls `devbox ssh --force_pty NAME -- bash -lc ...`; exiting the shell or pi does not stop or delete the box.
+Provisioning occurs in the pane, not in the noninteractive action. Pane entrypoint routing attaches directly and does not recursively open another pane. Herdr's zoomed placement targets the caller's existing pane and switches focus to the new zoomed pane. Shell pane calls `devbox ssh --force_pty NAME -- bash -lc ...`; exiting the shell or pi does not stop or delete the box.
 
 Standalone commands include:
 

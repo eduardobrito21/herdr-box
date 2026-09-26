@@ -1,9 +1,10 @@
-id = "herdr.box"
+id = "herdr-box"
 name = "herdr-box"
 version = "0.1.0"
-min_herdr_version = "0.9.1"
+min_herdr_version = "0.7.0"
 description = "Open a Namespace Devbox and run pi in a zoomed Herdr pane"
 platforms = ["linux", "macos"]
+build = [{ command = ["bash", "install.sh"] }]
 
 [[actions]]
 id = "open"
@@ -25,7 +26,7 @@ command = ["bash", "bin/box", "status"]
 
 [[actions]]
 id = "kill"
-title = "Kill Namespace Devbox"
+title = "Destroy Namespace Devbox (deletes remote data)"
 contexts = ["workspace"]
 command = ["bash", "bin/box", "kill"]
 
@@ -45,16 +46,16 @@ command = ["bash", "bin/box", "logs"]
 id = "open"
 title = "Namespace Devbox with pi"
 placement = "zoomed"
-command = ["bash", "bin/box", "pane-open"]
+command = ["bash", "bin/box", "open"]
 
 [[panes]]
 id = "shell"
 title = "Namespace Devbox shell"
 placement = "zoomed"
-command = ["bash", "bin/box", "pane-shell"]
+command = ["bash", "bin/box", "shell"]
 
-[[keys.command]]
+[[keys]]
 key = "prefix+b"
 type = "plugin_action"
-command = "herdr.box.open"
+command = "herdr-box.open"
 description = "open Namespace Devbox with pi"

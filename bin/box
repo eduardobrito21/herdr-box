@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Resolve this script through symlinks so linked/installed plugin roots work.
 source_path=${BASH_SOURCE[0]}
 while [[ -L "$source_path" ]]; do
   source_dir=$(cd -P "$(dirname "$source_path")" && pwd)
@@ -9,95 +8,88 @@ while [[ -L "$source_path" ]]; do
   [[ $link = /* ]] && source_path=$link || source_path=$source_dir/$link
 done
 PLUGIN_ROOT=$(cd -P "$(dirname "$source_path")/.." && pwd)
-
-find_node() {
-  local candidate ok='process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)'
-  if [[ -n ${HERDR_BOX_NODE:-} ]] && "$HERDR_BOX_NODE" -e "$ok" >/dev/null 2>&1; then
-    printf '%s\n' "$HERDR_BOX_NODE"; return
-  fi
-  if command -v node >/dev/null 2>&1 && node -e "$ok" >/dev/null 2>&1; then
-    command -v node; return
-  fi
-  local best= d
-  for d in "$HOME"/.nvm/versions/node/v*/bin/node /usr/local/bin/node /opt/homebrew/bin/node; do
-    [[ -x $d ]] || continue
-    if "$d" -e "$ok" >/dev/null 2>&1; then best=$d; fi
-  done
-  [[ -n $best ]] || { echo 'herdr-box: Node.js >=22 required (install it or set HERDR_BOX_NODE)' >&2; return 1; }
-  printf '%s\n' "$best"
-}
+source "$PLUGIN_ROOT/bin/lib/paths.sh"
 node_bin=$(find_node)
-run_cli() { "$node_bin" "$PLUGIN_ROOT/src/cli.js" "$@"; }
-json_field() {
-  "$node_bin" -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try { const x=JSON.parse(s); const v=process.argv[1].split(".").reduce((a,k)=>a?.[k],x); if (v != null) process.stdout.write(String(v)); } catch {} });' "$1"
-}
-quote_sh() { local s=$1; s=${s//\'/\'\\\'\'}; printf "'%s'" "$s"; }
+export HERDR_BOX_LOCAL_CWD=${HERDR_BOX_LOCAL_CWD:-$PWD}
 herdr_bin=${HERDR_BIN_PATH:-herdr}
 
-open_pane() {
-  local entrypoint=$1
-  if [[ -n ${HERDR_PLUGIN_ENTRYPOINT_ID:-} ]]; then
-    echo 'herdr-box: pane invocation loop detected; refusing to open another pane' >&2
-    return 1
-  fi
-  local plugin_id=${HERDR_PLUGIN_ID:-herdr.box}
-  "$herdr_bin" plugin pane open --plugin "$plugin_id" --entrypoint "$entrypoint" --placement zoomed
+# Standalone CLI and Herdr invocations use the same registered config/state.
+if [[ -z ${HERDR_PLUGIN_CONFIG_DIR:-} ]]; then
+  HERDR_PLUGIN_CONFIG_DIR=$("$herdr_bin" plugin config-dir herdr-box 2>/dev/null) || HERDR_PLUGIN_CONFIG_DIR=''
+  [[ -z $HERDR_PLUGIN_CONFIG_DIR ]] || export HERDR_PLUGIN_CONFIG_DIR
+fi
+run_cli() { "$node_bin" "$PLUGIN_ROOT/dist/src/cli.js" "$@"; }
+json_field() {
+  "$node_bin" -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);const v=process.argv[1].split(".").reduce((a,k)=>a?.[k],x);if(typeof v!=="string")throw Error("Missing string field: "+process.argv[1]);process.stdout.write(v);});' "$1"
 }
-
-command_name=${1:-open}; shift || true
-case "$command_name" in
-  pane-open|pane-shell)
-    [[ -n ${HERDR_PLUGIN_ENTRYPOINT_ID:-} ]] || { echo 'herdr-box: pane entrypoint invoked without Herdr pane context' >&2; exit 2; }
-    if [[ $command_name == pane-open ]]; then command_name=open; else command_name=shell; fi
-    ;;
-esac
+quote_sh() { local s=$1; s=${s//\'/\'\\\'\'}; printf "'%s'" "$s"; }
+require_devbox() {
+  command -v devbox >/dev/null 2>&1 || { echo 'herdr-box: install the standalone Namespace devbox CLI: https://namespace.so/docs/devbox/cli (nsc devbox is not a substitute)' >&2; exit 1; }
+}
+open_pane() {
+  local args=(plugin pane open --plugin herdr-box --entrypoint "$1" --placement zoomed)
+  local pane_info target_pane
+  [[ -z ${HERDR_WORKSPACE_ID:-} ]] || args+=(--workspace "$HERDR_WORKSPACE_ID")
+  pane_info=$("$herdr_bin" pane current --current)
+  target_pane=$(printf '%s' "$pane_info" | json_field pane.pane_id)
+  args+=(--target-pane "$target_pane")
+  "$herdr_bin" "${args[@]}"
+}
+usage() { echo 'usage: box [open|shell|status|list|kill [--yes]|logs]' >&2; exit 2; }
+command_name=${1:-open}; [[ $# -eq 0 ]] || shift
 case "$command_name" in
   open|shell)
-    [[ $# -eq 0 ]] || { echo "usage: box $command_name" >&2; exit 2; }
-    if [[ -n ${HERDR_PLUGIN_ENTRYPOINT_ID:-} ]]; then
-      # Pane commands attach directly; no CLI action or recursive pane launch.
-      config=$(run_cli config)
-      if [[ $command_name == open ]]; then
-        box_info=$(run_cli ensure)
-        ensured_pi=$(run_cli ensure-pi)
-        pi_command=$(printf '%s' "$ensured_pi" | json_field piCommand)
-        [[ -n $pi_command ]] || pi_command=$(printf '%s' "$config" | json_field pi.command)
-      else
-        box_info=$(run_cli status)
-        pi_command=''
-      fi
-      name=$(printf '%s' "$box_info" | json_field devboxName)
-      path=$(printf '%s' "$box_info" | json_field remotePath)
-      [[ -n $name && -n $path ]] || { echo "herdr-box: $command_name result omitted devboxName/remotePath" >&2; exit 1; }
-      remote="cd -- $(quote_sh "$path")"
-      [[ -z $pi_command ]] || remote+=" && exec $(quote_sh "$pi_command")"
-      command -v devbox >/dev/null 2>&1 || { echo 'herdr-box: Namespace devbox CLI required; install the standalone devbox CLI and authenticate (nsc devbox is not a substitute)' >&2; exit 1; }
-      exec devbox ssh --force_pty "$name" -- bash -lc "$remote"
+    [[ $# -eq 0 ]] || usage
+    require_devbox
+    if [[ -z ${HERDR_PLUGIN_ENTRYPOINT_ID:-} ]]; then
+      if [[ $command_name == open ]]; then open_pane open; else open_pane shell; fi
+      exit 0
     fi
+    # All slow provisioning runs inside the visible pane, never twice in an action.
+    echo 'herdr-box: ensuring Namespace Devbox…' >&2
+    config=$(run_cli config)
+    box_info=$(run_cli ensure)
+    pi_command=''
     if [[ $command_name == open ]]; then
-      run_cli ensure >/dev/null
+      pi_command=$(printf '%s' "$config" | json_field pi.command)
+      if [[ -n $pi_command ]]; then
+        echo 'herdr-box: checking pi…' >&2
+        run_cli ensure-pi >/dev/null
+      fi
+    fi
+    name=$(printf '%s' "$box_info" | json_field devboxName)
+    remote_path=$(printf '%s' "$box_info" | json_field remotePath)
+    [[ -n $name && $remote_path = /* ]] || { echo 'herdr-box: invalid Devbox attach information' >&2; exit 1; }
+    remote="cd -- $(quote_sh "$remote_path")"
+    if [[ -n $pi_command ]]; then
+      # pi.command is trusted, user-authored shell code, like a terminal startup command.
+      remote+=" && exec bash -lc $(quote_sh "$pi_command")"
     else
-      run_cli status >/dev/null
+      remote+=' && exec bash -l'
     fi
-    open_pane "$command_name"
+    echo "herdr-box: attaching to $name (exit leaves the Devbox running)" >&2
+    exec devbox ssh --force_pty "$name" -- bash -lc "$remote"
     ;;
-  status|list|kill)
-    if [[ $command_name == kill && $# -gt 0 && $1 != --yes && $1 != -y ]]; then
-      echo 'usage: box kill [--yes]' >&2; exit 2
-    fi
-    if [[ $command_name == kill && -t 0 && ${1:-} != --yes && ${1:-} != -y ]]; then
-      printf 'Kill the configured Namespace Devbox? [y/N] ' >&2
+  kill)
+    [[ $# -le 1 ]] || usage
+    [[ $# -eq 0 || $1 == --yes || $1 == -y ]] || usage
+    if [[ ${1:-} != --yes && ${1:-} != -y ]]; then
+      [[ -t 0 ]] || { echo 'herdr-box: noninteractive kill requires --yes' >&2; exit 2; }
+      config=$(run_cli config)
+      name=$(printf '%s' "$config" | json_field devbox.name)
+      printf 'Destroy Namespace Devbox %s? This deletes its remote data. [y/N] ' "$name" >&2
       read -r answer
-      [[ $answer == [Yy]* ]] || { echo 'herdr-box: kill cancelled' >&2; exit 1; }
-    elif [[ $command_name == kill && ! -t 0 && ${1:-} != --yes && ${1:-} != -y ]]; then
-      echo 'herdr-box: noninteractive kill requires --yes' >&2; exit 2
+      [[ $answer == y || $answer == Y ]] || { echo 'herdr-box: kill cancelled' >&2; exit 1; }
     fi
+    run_cli kill
+    ;;
+  status|list)
+    [[ $# -eq 0 ]] || usage
     run_cli "$command_name"
     ;;
   logs)
-    [[ $# -eq 0 ]] || { echo 'usage: box logs' >&2; exit 2; }
-    echo 'herdr-box: Namespace operations are recorded in plugin state; inspect HERDR_PLUGIN_STATE_DIR. No live log stream is available.' >&2
-    run_cli status
+    [[ $# -eq 0 ]] || usage
+    exec "$herdr_bin" plugin log list --plugin herdr-box
     ;;
-  *) echo 'usage: box [open|shell|status|list|kill [--yes]|logs]' >&2; exit 2 ;;
+  *) usage ;;
 esac

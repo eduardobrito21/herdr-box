@@ -1,6 +1,6 @@
 import TOML from "@iarna/toml";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { chmod, copyFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -9,7 +9,16 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const script = path.join(root, "bin/box");
-async function fixture() {
+
+type ControlFixture = {
+  dir: string;
+  env: NodeJS.ProcessEnv;
+  cliLog: string;
+  herdrLog: string;
+  devboxLog: string;
+};
+
+async function fixture(): Promise<ControlFixture> {
   const dir = await mkdtemp(path.join(os.tmpdir(), "herdr-box-control-"));
   await mkdir(path.join(dir, "dist/src"), { recursive: true });
   await mkdir(path.join(dir, "bin/lib"), { recursive: true });
@@ -41,10 +50,10 @@ console.log(JSON.stringify(values[verb]));
     '#!/bin/sh\nprintf "%s\\n" "$*" >> "$HERDR_LOG"\nif [ "$1 $2 $3" = "pane current --current" ]; then printf \'{"pane":{"pane_id":"wB:p1"}}\'; fi\n',
   );
   await writeFile(path.join(bindir, "devbox"), '#!/bin/sh\nprintf "%s\\n" "$*" >> "$DEVBOX_LOG"\n');
-  for (const name of ["herdr", "devbox"]) await chmod(path.join(bindir, name), 0o755);
-  const env = {
+  await Promise.all(["herdr", "devbox"].map((name) => chmod(path.join(bindir, name), 0o755)));
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
-    PATH: `${bindir}:${process.env.PATH}`,
+    PATH: `${bindir}:${process.env["PATH"]}`,
     CLI_LOG: cliLog,
     HERDR_LOG: herdrLog,
     DEVBOX_LOG: path.join(dir, "devbox.log"),
@@ -53,18 +62,24 @@ console.log(JSON.stringify(values[verb]));
     HERDR_PLUGIN_CONFIG_DIR: dir,
     HERDR_PLUGIN_STATE_DIR: dir,
     HERDR_BIN_PATH: path.join(bindir, "herdr"),
+    HERDR_PANE_ID: "wB:p1",
     BOX_SCRIPT: path.join(dir, "bin/box"),
   };
-  return { dir, env, cliLog, herdrLog, devboxLog: env.DEVBOX_LOG };
+  return { dir, env, cliLog, herdrLog, devboxLog: env["DEVBOX_LOG"]! };
 }
-function run(args, env) {
-  return spawnSync("bash", [env.BOX_SCRIPT ?? script, ...args], {
+function run(args: string[], env: NodeJS.ProcessEnv): SpawnSyncReturns<string> {
+  return spawnSync("bash", [env["BOX_SCRIPT"] ?? script, ...args], {
     encoding: "utf8",
     env,
   });
 }
 
-test("open action opens a pane without doing slow provisioning in the action process", async () => {
+function prop(value: unknown, key: string): unknown {
+  assert.ok(value !== null && typeof value === "object");
+  return Reflect.get(value, key);
+}
+
+void test("open action opens a pane without doing slow provisioning in the action process", async () => {
   const f = await fixture();
   const result = run(["open"], f.env);
   assert.equal(result.status, 0, result.stderr);
@@ -77,10 +92,10 @@ test("open action opens a pane without doing slow provisioning in the action pro
   assert.doesNotMatch(log, /--placement tab|--workspace wB|pane current --current/);
 });
 
-test("open action resolves caller pane when Herdr did not inject its pane id", async () => {
+void test("open action resolves caller pane when Herdr did not inject its pane id", async () => {
   const f = await fixture();
   const env = { ...f.env };
-  delete env.HERDR_PANE_ID;
+  delete env["HERDR_PANE_ID"];
   const result = run(["open"], env);
   assert.equal(result.status, 0, result.stderr);
   const log = await readFile(f.herdrLog, "utf8");
@@ -89,7 +104,7 @@ test("open action resolves caller pane when Herdr did not inject its pane id", a
   assert.doesNotMatch(log, /--workspace wB|--placement tab/);
 });
 
-test("open pane ensures once and quotes cwd/command across the SSH command boundary", async () => {
+void test("open pane ensures once and quotes cwd/command across the SSH command boundary", async () => {
   const f = await fixture();
   const result = run(["open"], { ...f.env, HERDR_PLUGIN_ENTRYPOINT_ID: "box" });
   assert.equal(result.status, 0, result.stderr);
@@ -99,7 +114,7 @@ test("open pane ensures once and quotes cwd/command across the SSH command bound
   assert.match(await readFile(f.devboxLog, "utf8"), /exec bash -lc 'pi'/);
 });
 
-test("shell action uses a distinct pane and ensures box but skips pi", async () => {
+void test("shell action uses a distinct pane and ensures box but skips pi", async () => {
   const f = await fixture();
   const action = run(["shell"], f.env);
   assert.equal(action.status, 0, action.stderr);
@@ -114,7 +129,7 @@ test("shell action uses a distinct pane and ensures box but skips pi", async () 
   assert.doesNotMatch(await readFile(f.devboxLog, "utf8"), /exec bash -lc/);
 });
 
-test("kill requires explicit confirmation when noninteractive", async () => {
+void test("kill requires explicit confirmation when noninteractive", async () => {
   const f = await fixture();
   const result = run(["kill"], f.env);
   assert.equal(result.status, 2);
@@ -122,7 +137,7 @@ test("kill requires explicit confirmation when noninteractive", async () => {
   assert.equal(run(["kill", "--yes"], f.env).status, 0);
 });
 
-test("empty pi command enters an interactive shell without pi checks", async () => {
+void test("empty pi command enters an interactive shell without pi checks", async () => {
   const f = await fixture();
   const result = run(["open"], {
     ...f.env,
@@ -134,11 +149,12 @@ test("empty pi command enters an interactive shell without pi checks", async () 
   assert.match(await readFile(f.devboxLog, "utf8"), /exec bash -l/);
 });
 
-test("missing devbox CLI fails before provisioning and malformed arguments fail cleanly", async () => {
+void test("missing devbox CLI fails before provisioning and malformed arguments fail cleanly", async () => {
   const f = await fixture();
   const noDevbox = {
     ...f.env,
-    PATH: f.env.PATH.split(path.delimiter)
+    PATH: (f.env["PATH"] ?? "")
+      .split(path.delimiter)
       .filter((part) => !part.endsWith("/mockbin") && !part.endsWith("/.local/bin"))
       .join(path.delimiter),
   };
@@ -150,7 +166,7 @@ test("missing devbox CLI fails before provisioning and malformed arguments fail 
   assert.equal(bad.status, 2);
 });
 
-test("existing pane invocation attaches directly without re-opening a pane", async () => {
+void test("existing pane invocation attaches directly without re-opening a pane", async () => {
   const f = await fixture();
   const result = run(["shell"], {
     ...f.env,
@@ -161,28 +177,30 @@ test("existing pane invocation attaches directly without re-opening a pane", asy
   assert.match(await readFile(f.devboxLog, "utf8"), /--force_pty db-test/);
 });
 
-test("manifest uses supported plugin id, pane commands, keybinding, and build sequence", async () => {
+void test("manifest uses supported plugin id, pane commands, keybinding, and build sequence", async () => {
   const manifest = TOML.parse(await readFile(path.join(root, "herdr-plugin.toml"), "utf8"));
-  assert.equal(manifest.id, "herdr-box");
-  assert.equal(manifest.min_herdr_version, "0.7.0");
-  assert.deepEqual(manifest.build, [{ command: ["bash", "install.sh"] }]);
+  assert.equal(manifest["id"], "herdr-box");
+  assert.equal(manifest["min_herdr_version"], "0.7.0");
+  assert.deepEqual(manifest["build"], [{ command: ["bash", "install.sh"] }]);
+  const panes = manifest["panes"];
+  assert.ok(Array.isArray(panes));
   assert.deepEqual(
-    manifest.panes.map((pane) => pane.command),
+    panes.map((pane) => prop(pane, "command")),
     [
       ["bash", "bin/box", "open"],
       ["bash", "bin/box", "shell"],
     ],
   );
-  assert.equal(manifest.panes[0].id, "box");
-  assert.equal(manifest.panes[1].id, "shell");
-  assert.equal(manifest.keys, undefined);
-  assert.match(
-    manifest.actions.find((action) => action.id === "kill").title,
-    /deletes remote data/,
-  );
+  assert.equal(prop(panes[0], "id"), "box");
+  assert.equal(prop(panes[1], "id"), "shell");
+  assert.equal(manifest["keys"], undefined);
+  const actions = manifest["actions"];
+  assert.ok(Array.isArray(actions));
+  const kill = actions.find((action) => prop(action, "id") === "kill");
+  assert.ok(kill !== undefined);
+  assert.match(String(prop(kill, "title")), /deletes remote data/);
 });
-
-test("installer performs dependencies and creates only a safe idempotent CLI link", async () => {
+void test("installer performs dependencies and creates only a safe idempotent CLI link", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "herdr-box-install-"));
   const bin = path.join(dir, "bin");
   const mockbin = path.join(dir, "mockbin");
@@ -199,7 +217,7 @@ test("installer performs dependencies and creates only a safe idempotent CLI lin
     ...process.env,
     HERDR_BOX_BIN_DIR: bin,
     HERDR_BOX_NODE: nodeShim,
-    PATH: `${mockbin}:${process.env.PATH}`,
+    PATH: `${mockbin}:${process.env["PATH"]}`,
     INSTALL_NPM_LOG: npmLog,
   };
   const installer = path.join(root, "install.sh");
